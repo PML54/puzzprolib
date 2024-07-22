@@ -4,9 +4,11 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
 
 import 'pmlsoft.dart';
 import 'puzzle_state.dart';
+import 'puzzle_params.dart';
 import 'utils/function_counter.dart';
 
 final FunctionCounter _counter = FunctionCounter();
@@ -17,8 +19,7 @@ class PuzzleBoard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final puzzleState = ref.watch(puzzleProvider);
-    final correctPieces =
-    ref.read(puzzleProvider.notifier).countCorrectPieces();
+    final correctPieces = ref.read(puzzleProvider.notifier).countCorrectPieces();
     final isComplete = correctPieces == puzzleState.pieces.length;
     _counter.increment('build PuzzleBoard');
 
@@ -29,8 +30,7 @@ class PuzzleBoard extends ConsumerWidget {
     final screenSize = MediaQuery.of(context).size;
     final appBarHeight = AppBar().preferredSize.height;
     final availableHeight = screenSize.height - appBarHeight;
-    final imageAspectRatio =
-        puzzleState.imageSize.width / puzzleState.imageSize.height;
+    final imageAspectRatio = puzzleState.imageSize.width / puzzleState.imageSize.height;
 
     double puzzleWidth, puzzleHeight;
     if (imageAspectRatio > screenSize.width / availableHeight) {
@@ -87,9 +87,7 @@ class PuzzleBoard extends ConsumerWidget {
                 final pieceIndex = puzzleState.currentArrangement[index];
                 return DragTarget<int>(
                   onAcceptWithDetails: (details) {
-                    ref
-                        .read(puzzleProvider.notifier)
-                        .swapPieces(details.data, index);
+                    ref.read(puzzleProvider.notifier).swapPieces(details.data, index);
                   },
                   builder: (context, candidateData, rejectedData) {
                     return Draggable<int>(
@@ -174,6 +172,67 @@ class _PuzzleGameState extends ConsumerState<PuzzleGame> {
     });
   }
 
+  Future<void> _pickImage() async {
+    final ImagePicker picker = ImagePicker();
+    final XFile? image = await picker.pickImage(source: ImageSource.gallery);
+
+    if (image != null) {
+      final Uint8List imageBytes = await image.readAsBytes();
+      _loadCustomImage(imageBytes, image.name);
+    }
+  }
+
+  Future<void> _takePhoto() async {
+    final ImagePicker picker = ImagePicker();
+    final XFile? photo = await picker.pickImage(source: ImageSource.camera);
+
+    if (photo != null) {
+      final Uint8List photoBytes = await photo.readAsBytes();
+      _loadCustomImage(photoBytes, 'Photo_${DateTime.now().toIso8601String()}.jpg');
+    }
+  }
+
+  Future<void> _loadCustomImage(Uint8List imageBytes, String imageName) async {
+    ref.read(puzzleProvider.notifier).setLoading(true);
+    ref.read(puzzleProvider.notifier).setImageTitle(imageName);
+    ref.read(puzzleProvider.notifier).resetSwapCount();
+
+    try {
+      final Stopwatch stopwatch = Stopwatch()..start();
+
+      final loadingTime = stopwatch.elapsed;
+      stopwatch.stop();
+      stopwatch.reset();
+
+      stopwatch.start();
+      await ref.read(puzzleProvider.notifier).initializePuzzle(
+        imageBytes,
+        imageBytes,
+        imageName,
+        loadingTime,
+        Duration.zero,
+        false,
+        'Custom',
+      );
+
+      final initializationTime = stopwatch.elapsed;
+      stopwatch.stop();
+
+      ref.read(puzzleProvider.notifier).shufflePieces();
+      ref.read(puzzleProvider.notifier).setPuzzleReady(true);
+
+      ref.read(puzzleProvider.notifier).updateProcessingTimes({
+        'loading': loadingTime,
+        'initialization': initializationTime,
+      });
+    } catch (e) {
+      print("Erreur lors du chargement de l'image: $e");
+      ref.read(puzzleProvider.notifier).setError("Erreur lors du chargement de l'image");
+    } finally {
+      ref.read(puzzleProvider.notifier).setLoading(false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final puzzleState = ref.watch(puzzleProvider);
@@ -183,7 +242,7 @@ class _PuzzleGameState extends ConsumerState<PuzzleGame> {
         title: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(puzzleState.isLoading ? "Découpage en cours...v7.21" : ""),
+            Text(puzzleState.isLoading ? "Découpage en cours...v7.2107" : ""),
             const SizedBox(width: 10),
             if (!puzzleState.isLoading) ...[
               Tooltip(
@@ -213,42 +272,53 @@ class _PuzzleGameState extends ConsumerState<PuzzleGame> {
               iconSize: 35.0,
             ),
             IconButton(
+              icon: const Icon(Icons.photo_library),
+              onPressed: _pickImage,
+              tooltip: 'Choisir une image',
+              iconSize: 35.0,
+            ),
+            IconButton(
+              icon: const Icon(Icons.camera_alt),
+              onPressed: _takePhoto,
+              tooltip: 'Prendre une photo',
+              iconSize: 35.0,
+            ),
+            IconButton(
               icon: const Icon(Icons.lightbulb_outline),
               onPressed: _toggleFullImage,
               tooltip: 'Voir le puzzle',
               iconSize: 35.0,
             ),
             IconButton(
+              icon: const Icon(Icons.settings),
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const DifficultySettingsScreen()),
+                );
+              },
+            ),
+    /*        IconButton(
               icon: const Icon(Icons.info),
               onPressed: () {
                 showDialog(
                   context: context,
                   builder: (context) => AlertDialog(
-                    title: const Text('20/07 06:10'),
+                    title: const Text('22/07 08:10'),
                     content: SingleChildScrollView(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                              'Taille originale: ${puzzleState.originalImageSize} bytes'),
-                          Text(
-                              'Dimensions originales: ${puzzleState.originalImageDimensions.width.round()}x${puzzleState.originalImageDimensions.height.round()}'),
-                          Text(
-                              'Taille optimisée: ${puzzleState.optimizedImageSize} bytes'),
-                          Text(
-                              'Dimensions optimisées: ${puzzleState.optimizedImageDimensions.width.round()}x${puzzleState.optimizedImageDimensions.height.round()}'),
-                          Text(
-                              'Chargement: ${puzzleState.processingTimes['loading']?.inMilliseconds}ms'),
-                          Text(
-                              'Optimisation: ${puzzleState.processingTimes['optimization']?.inMilliseconds}ms'),
-                          Text(
-                              'Initialisation: ${puzzleState.processingTimes['initialization']?.inMilliseconds}ms'),
-                          Text(
-                              'Décodage: ${puzzleState.processingTimes['decoding']?.inMilliseconds}ms'),
-                          Text(
-                              'Redimensionnement: ${puzzleState.processingTimes['resizing']?.inMilliseconds}ms'),
-                          Text(
-                              'Création des pièces: ${puzzleState.processingTimes['pieces_creation']?.inMilliseconds}ms'),
+                          Text('Taille originale: ${puzzleState.originalImageSize} bytes'),
+                          Text('Dimensions originales: ${puzzleState.originalImageDimensions.width.round()}x${puzzleState.originalImageDimensions.height.round()}'),
+                          Text('Taille optimisée: ${puzzleState.optimizedImageSize} bytes'),
+                          Text('Dimensions optimisées: ${puzzleState.optimizedImageDimensions.width.round()}x${puzzleState.optimizedImageDimensions.height.round()}'),
+                          Text('Chargement: ${puzzleState.processingTimes['loading']?.inMilliseconds}ms'),
+                          Text('Optimisation: ${puzzleState.processingTimes['optimization']?.inMilliseconds}ms'),
+                          Text('Initialisation: ${puzzleState.processingTimes['initialization']?.inMilliseconds}ms'),
+                          Text('Décodage: ${puzzleState.processingTimes['decoding']?.inMilliseconds}ms'),
+                          Text('Redimensionnement: ${puzzleState.processingTimes['resizing']?.inMilliseconds}ms'),
+                          Text('Création des pièces: ${puzzleState.processingTimes['pieces_creation']?.inMilliseconds}ms'),
                         ],
                       ),
                     ),
@@ -261,7 +331,7 @@ class _PuzzleGameState extends ConsumerState<PuzzleGame> {
                   ),
                 );
               },
-            ),
+            ),*/
           ],
         ],
       ),
@@ -296,8 +366,7 @@ class _PuzzleGameState extends ConsumerState<PuzzleGame> {
     try {
       final Stopwatch stopwatch = Stopwatch()..start();
       final String assetPath = 'assets/${randomImage['file']}';
-      final ByteData data =
-      await DefaultAssetBundle.of(context).load(assetPath);
+      final ByteData data = await DefaultAssetBundle.of(context).load(assetPath);
       final Uint8List imageBytes = data.buffer.asUint8List();
 
       final loadingTime = stopwatch.elapsed;
@@ -331,9 +400,7 @@ class _PuzzleGameState extends ConsumerState<PuzzleGame> {
       });
     } catch (e) {
       print("Erreur lors du chargement de l'image: $e");
-      ref
-          .read(puzzleProvider.notifier)
-          .setError("Erreur lors du chargement de l'image");
+      ref.read(puzzleProvider.notifier).setError("Erreur lors du chargement de l'image");
     } finally {
       ref.read(puzzleProvider.notifier).setLoading(false);
     }

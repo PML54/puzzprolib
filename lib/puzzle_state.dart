@@ -7,12 +7,8 @@ import 'package:image/image.dart' as img;
 
 import 'utils/function_counter.dart';
 
-///StateNotifierProvider :
-/// Utilisé pour des états plus complexes avec une logique de mise à jour encapsulée.
-enum RemoveDirection { fromStart, fromEnd }
 final puzzleProvider = StateNotifierProvider<PuzzleNotifier, PuzzleState>(
         (ref) => PuzzleNotifier());
-
 ///Riverpod : Facilite les tests unitaires et d'intégration en permettant
 /// de remplacer facilement les providers par des mocks.
 class PuzzleConfiguration {
@@ -64,7 +60,23 @@ class PuzzleNotifier extends StateNotifier<PuzzleState> {
     currentArrangement: [],
     hasSeenDocumentation: false,
   ));
+  Future<void> applyNewDifficulty() async {
+    if (state.fullImage != null) {
+      // Ajout d'un délai artificiel pour rendre le changement visible
+      await Future.delayed(const Duration(seconds: 2));
 
+      await initializePuzzle(
+        state.fullImage!,
+        state.fullImage!,
+        state.currentImageName ?? '',
+        Duration.zero,
+        Duration.zero,
+        true,
+        state.categ,
+      );
+      shufflePieces();
+    }
+  }
   int countCorrectPieces() {
     _counter.increment('countCorrectPieces');
     return state.currentArrangement
@@ -118,15 +130,18 @@ class PuzzleNotifier extends StateNotifier<PuzzleState> {
     if (image == null) {
       throw Exception("Impossible de décoder l'image");
     }
-    print("Type de l'image décodée: ${image.runtimeType}");
 
     detailedTimes['decoding'] = decodeStopwatch.elapsed;
-
-
     final imageSize = Size(image.width.toDouble(), image.height.toDouble());
     final aspectRatio = image.width / image.height;
-    final (columns, rows) = _determineOptimalGridSize(aspectRatio, 3, 5);
 
+    int columns, rows;
+    if (state.useCustomGridSize) {
+      columns = state.difficultyCols;
+      rows = state.difficultyRows;
+    } else {
+      (columns, rows) = _determineOptimalGridSize(aspectRatio, 3, 5);
+    }
 
 
     int pieceHeight = image.height~/rows;
@@ -192,6 +207,37 @@ class PuzzleNotifier extends StateNotifier<PuzzleState> {
   }
 
 
+  bool isGameComplete() {
+    _counter.increment('isGameComplete');
+    for (int i = 0; i < state.currentArrangement.length; i++) {
+      if (state.currentArrangement[i] != i) {
+        return false;
+      }
+    }
+    return true;
+  }
+  bool isPuzzleComplete() {
+    return state.currentArrangement
+        .asMap()
+        .entries
+        .every((entry) => entry.key == entry.value);
+  }
+
+  Future<Map<String, dynamic>?> loadMetadata() async {
+    _counter.increment('loadMetadata');
+    return null;
+
+    // ... (le code de loadMetadata reste ici)
+  }
+
+  //<PML>  pas dans la version
+  Future<Uint8List> optimizeImage(Uint8List imageBytes,
+      {int quality = 75}) async {
+    return await compute(
+            (Map<String, dynamic> args) => _optimizeImage(imageBytes, quality),
+        {'imageBytes': imageBytes, 'quality': quality});
+  }
+
   img.Image removeColumnsAndRows(
       img.Image source,
       int columnsToRemove,
@@ -217,41 +263,7 @@ class PuzzleNotifier extends StateNotifier<PuzzleState> {
 
     return result;
   }
-  bool isGameComplete() {
-    _counter.increment('isGameComplete');
-    for (int i = 0; i < state.currentArrangement.length; i++) {
-      if (state.currentArrangement[i] != i) {
-        return false;
-      }
-    }
-    return true;
-  }
 
-  bool isPuzzleComplete() {
-    return state.currentArrangement
-        .asMap()
-        .entries
-        .every((entry) => entry.key == entry.value);
-  }
-
-  Future<Map<String, dynamic>?> loadMetadata() async {
-    _counter.increment('loadMetadata');
-    return null;
-
-    // ... (le code de loadMetadata reste ici)
-  }
-
-  //<PML>  pas dans la version
-  Future<Uint8List> optimizeImage(Uint8List imageBytes,
-      {int quality = 75}) async {
-    return await compute(
-            (Map<String, dynamic> args) => _optimizeImage(imageBytes, quality),
-        {'imageBytes': imageBytes, 'quality': quality});
-  }
-
-  void resetSwapCount() {
-    state = state.copyWith(swapCount: 0);
-  }
   //
 
   img.Image removeExcessPixels(img.Image image, int columns, int rows) {
@@ -273,6 +285,9 @@ class PuzzleNotifier extends StateNotifier<PuzzleState> {
 
     return adjustedImage;
   }
+  void resetSwapCount() {
+    state = state.copyWith(swapCount: 0);
+  }
 
 // Dans votre méthode d'initialisation du puzzle
 
@@ -285,11 +300,28 @@ class PuzzleNotifier extends StateNotifier<PuzzleState> {
   Future<void> savePuzzleState([String? imageName]) async {
     _counter.increment('savePuzzleState');
   }
-
-  void setCategory(String category) {
+void setCategory(String category) {
     _counter.increment('setCategory');
     state = state.copyWith(categ: category);
   }
+
+  // Dans la classe PuzzleNotifier, ajoutez ces méthodes :
+  void setColumns(int columns) {
+    state = state.copyWith(columns: columns);
+  }
+
+  void setDifficulty(int cols, int rows) {
+    state = state.copyWith(
+        difficultyCols: cols,
+        difficultyRows: rows,
+        useCustomGridSize: true
+    );
+  }
+
+  void resetToOptimalGridSize() {
+    state = state.copyWith(useCustomGridSize: false);
+  }
+
 
   void setDocumentationSeen() {
     _counter.increment('setDocumentationSeen');
@@ -309,14 +341,17 @@ class PuzzleNotifier extends StateNotifier<PuzzleState> {
   void setLoading(bool isLoading) {
     _counter.increment('setLoading');
     if (state.isLoading != isLoading) {
-      print("Changing isLoading to: $isLoading"); // Pour le débogage
+
       state = state.copyWith(isLoading: isLoading);
     }
   }
-
   void setPuzzleReady(bool ready) {
     _counter.increment('setPuzzleReady');
     state = state.copyWith(isInitialized: ready);
+  }
+
+  void setRows(int rows) {
+    state = state.copyWith(rows: rows);
   }
 
   void shufflePieces() {
@@ -459,6 +494,9 @@ class PuzzleState {
   final List<Uint8List> pieces;
   final int columns;
   final int rows;
+  final int difficultyCols;
+  final int difficultyRows;
+  final bool useCustomGridSize;  // Ajout de ce champ
   final Size imageSize;
   final List<int> currentArrangement;
   final Uint8List? shuffledImage;
@@ -480,8 +518,12 @@ class PuzzleState {
   PuzzleState({
     required this.isInitialized,
     required this.pieces,
-    this.columns = 1, // valeur par défaut
-    this.rows = 1, // valeur par défaut
+    this.columns = 1,
+    this.rows = 1,
+    this.difficultyCols = 4,  // valeur par défaut
+    this.difficultyRows = 4,  // valeur par défaut
+    this.useCustomGridSize = false,
+
     required this.imageSize,
     required this.currentArrangement,
     this.shuffledImage,
@@ -506,6 +548,9 @@ class PuzzleState {
     List<Uint8List>? pieces,
     int? columns,
     int? rows,
+    int? difficultyCols,
+    int? difficultyRows,
+    bool? useCustomGridSize,
     Size? imageSize,
     List<int>? currentArrangement,
     Uint8List? shuffledImage,
@@ -529,6 +574,9 @@ class PuzzleState {
       pieces: pieces ?? this.pieces,
       columns: columns ?? this.columns,
       rows: rows ?? this.rows,
+      difficultyCols: difficultyCols ?? this.difficultyCols,
+      difficultyRows: difficultyRows ?? this.difficultyRows,
+      useCustomGridSize: useCustomGridSize ?? this.useCustomGridSize,  // Inclusion dans le retour
       imageSize: imageSize ?? this.imageSize,
       currentArrangement: currentArrangement ?? this.currentArrangement,
       shuffledImage: shuffledImage ?? this.shuffledImage,
@@ -551,6 +599,10 @@ class PuzzleState {
     );
   }
 }
+
+///StateNotifierProvider :
+/// Utilisé pour des états plus complexes avec une logique de mise à jour encapsulée.
+enum RemoveDirection { fromStart, fromEnd }
 
 ///Encapsulation : Le notifier encapsule toute la logique de gestion de l'état du puzzle.
 /// Séparation des préoccupations : L'état (PuzzleState) est séparé de la logique qui le modifie (PuzzleNotifier).
