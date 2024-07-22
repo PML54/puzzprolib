@@ -239,101 +239,114 @@ class _PuzzleGameState extends ConsumerState<PuzzleGame> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(puzzleState.isLoading ? "Découpage en cours...v7.2107" : ""),
-            const SizedBox(width: 10),
-            if (!puzzleState.isLoading) ...[
-              Tooltip(
-                message: puzzleState.currentImageTitle,
-                child: Text(
-                  '${ref.read(puzzleProvider.notifier).countCorrectPieces()} / ${puzzleState.pieces.length}',
-                  style: const TextStyle(fontSize: 15, color: Colors.black),
-                ),
+        title: puzzleState.isLoading
+            ? const Text("Découpage en cours...v7.2215", style: TextStyle(fontSize: 16, color: Colors.red))
+            : const Text(''),
+        actions: !puzzleState.isLoading
+            ? [
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: Center(
+              child: Text(
+                '${ref.read(puzzleProvider.notifier).countCorrectPieces()}/${puzzleState.pieces.length}',
+                style: const TextStyle(fontSize: 16, color: Colors.black),
               ),
-              const SizedBox(width: 10),
-              Tooltip(
-                message: 'Résolu en  ${puzzleState.minimalMoves})',
-                child: Text(
-                  '${puzzleState.swapCount} Coups',
-                  style: const TextStyle(fontSize: 15, color: Colors.black),
-                ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: Center(
+              child: Text(
+                '[${puzzleState.swapCount}]  ',
+                style: const TextStyle(fontSize: 14, color: Colors.red),
               ),
-            ],
-          ],
-        ),
-        actions: [
-          if (!puzzleState.isLoading) ...[
-            IconButton(
-              icon: const Icon(Icons.inbox, color: Colors.greenAccent),
-              onPressed: () => _loadRandomImage(context),
-              tooltip: 'Boite à Images',
-              iconSize: 35.0,
             ),
-            IconButton(
-              icon: const Icon(Icons.photo_library),
-              onPressed: _pickImage,
-              tooltip: 'Choisir une image',
-              iconSize: 35.0,
-            ),
-            IconButton(
-              icon: const Icon(Icons.camera_alt),
-              onPressed: _takePhoto,
-              tooltip: 'Prendre une photo',
-              iconSize: 35.0,
-            ),
-            IconButton(
-              icon: const Icon(Icons.lightbulb_outline),
-              onPressed: _toggleFullImage,
-              tooltip: 'Voir le puzzle',
-              iconSize: 35.0,
-            ),
-            IconButton(
-              icon: const Icon(Icons.settings),
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => const DifficultySettingsScreen()),
-                );
-              },
-            ),
-    /*        IconButton(
-              icon: const Icon(Icons.info),
-              onPressed: () {
-                showDialog(
-                  context: context,
-                  builder: (context) => AlertDialog(
-                    title: const Text('22/07 08:10'),
-                    content: SingleChildScrollView(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('Taille originale: ${puzzleState.originalImageSize} bytes'),
-                          Text('Dimensions originales: ${puzzleState.originalImageDimensions.width.round()}x${puzzleState.originalImageDimensions.height.round()}'),
-                          Text('Taille optimisée: ${puzzleState.optimizedImageSize} bytes'),
-                          Text('Dimensions optimisées: ${puzzleState.optimizedImageDimensions.width.round()}x${puzzleState.optimizedImageDimensions.height.round()}'),
-                          Text('Chargement: ${puzzleState.processingTimes['loading']?.inMilliseconds}ms'),
-                          Text('Optimisation: ${puzzleState.processingTimes['optimization']?.inMilliseconds}ms'),
-                          Text('Initialisation: ${puzzleState.processingTimes['initialization']?.inMilliseconds}ms'),
-                          Text('Décodage: ${puzzleState.processingTimes['decoding']?.inMilliseconds}ms'),
-                          Text('Redimensionnement: ${puzzleState.processingTimes['resizing']?.inMilliseconds}ms'),
-                          Text('Création des pièces: ${puzzleState.processingTimes['pieces_creation']?.inMilliseconds}ms'),
-                        ],
-                      ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.inbox, color: Colors.black),
+            onPressed: () => _loadRandomImage(context),
+            tooltip: 'Boite à Images',
+            iconSize: 26.0,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
+          ),
+          IconButton(
+            icon: const Icon(Icons.lightbulb_outline, color: Colors.greenAccent),
+            onPressed: _toggleFullImage,
+            tooltip: 'Voir le puzzle',
+            iconSize: 26.0,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
+          ),
+          IconButton(
+            icon: const Icon(Icons.photo_library_outlined, color: Colors.black),
+            onPressed: _pickImage,
+            tooltip: 'Choisir une image',
+            iconSize: 26.0,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
+          ),
+          IconButton(
+            icon: const Icon(Icons.camera_alt, color: Colors.black),
+            onPressed: _takePhoto,
+            tooltip: 'Prendre une photo',
+            iconSize: 26.0,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
+          ),
+          IconButton(
+            icon: const Icon(Icons.settings, color: Colors.black),
+            tooltip: 'Paramètres',
+            iconSize: 26.0,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const DifficultySettingsScreen()),
+              );
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.info, color: Colors.red),
+            iconSize: 22.0,
+            tooltip: 'Infos Image',
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
+            onPressed: () {
+              showDialog(
+                context: context,
+                builder: (context) => AlertDialog(
+                  title: const Text('22/07 16:10'),
+                  content: SingleChildScrollView(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Taille originale: ${puzzleState.originalImageSize} bytes'),
+                        Text('Dimensions originales: ${puzzleState.originalImageDimensions.width.round()}x${puzzleState.originalImageDimensions.height.round()}'),
+                        Text('Taille optimisée: ${puzzleState.optimizedImageSize} bytes'),
+                        Text('Dimensions optimisées: ${puzzleState.optimizedImageDimensions.width.round()}x${puzzleState.optimizedImageDimensions.height.round()}'),
+                        Text('Chargement: ${puzzleState.processingTimes['loading']?.inMilliseconds}ms'),
+                        Text('Optimisation: ${puzzleState.processingTimes['optimization']?.inMilliseconds}ms'),
+                        Text('Initialisation: ${puzzleState.processingTimes['initialization']?.inMilliseconds}ms'),
+                        Text('Décodage: ${puzzleState.processingTimes['decoding']?.inMilliseconds}ms'),
+                        Text('Redimensionnement: ${puzzleState.processingTimes['resizing']?.inMilliseconds}ms'),
+                        Text('Création des pièces: ${puzzleState.processingTimes['pieces_creation']?.inMilliseconds}ms'),
+                      ],
                     ),
-                    actions: [
-                      TextButton(
-                        child: const Text('Fermer'),
-                        onPressed: () => Navigator.of(context).pop(),
-                      ),
-                    ],
                   ),
-                );
-              },
-            ),*/
-          ],
-        ],
+                  actions: [
+                    TextButton(
+                      child: const Text('Fermer'),
+                      onPressed: () => Navigator.of(context).pop(),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ]
+            : [],
       ),
       body: Stack(
         children: [
