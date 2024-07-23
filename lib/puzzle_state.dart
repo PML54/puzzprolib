@@ -6,6 +6,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image/image.dart' as img;
 
 import 'utils/function_counter.dart';
+import 'dart:convert';
+import 'package:flutter/material.dart';
+import 'dart:html' as html;
+
+
+
+
 
 final puzzleProvider = StateNotifierProvider<PuzzleNotifier, PuzzleState>(
         (ref) => PuzzleNotifier());
@@ -290,9 +297,62 @@ class PuzzleNotifier extends StateNotifier<PuzzleState> {
   }
 
 // Dans votre méthode d'initialisation du puzzle
-
   //
+  Future<void> reconstructPuzzle(
+      int columns,
+      int rows,
+      List<int> currentArrangement,
+      int swapCount,
+      Uint8List imageBytes,
+      String imageTitle,
+      ) async {
+    setLoading(true);
 
+    try {
+      final optimizedImageBytes = await optimizeImage(imageBytes, quality: 75);
+      final image = await compute(img.decodeImage, optimizedImageBytes);
+
+      if (image == null) {
+        throw Exception("Impossible de décoder l'image");
+      }
+
+      final imageSize = Size(image.width.toDouble(), image.height.toDouble());
+
+      int pieceHeight = image.height ~/ rows;
+      int pieceWidth = image.width ~/ columns;
+
+      final pieces = await compute(_createPuzzlePieces, {
+        'image': image,
+        'rows': rows,
+        'columns': columns,
+        'pieceheight': pieceHeight,
+        'piecewidth': pieceWidth,
+      });
+
+      state = state.copyWith(
+        isInitialized: true,
+        pieces: pieces,
+        columns: columns,
+        rows: rows,
+        imageSize: imageSize,
+        currentArrangement: currentArrangement,
+        currentImageName: imageTitle,
+        currentImageTitle: imageTitle,
+        fullImage: imageBytes,
+        swapCount: swapCount,
+        originalImageSize: imageBytes.length,
+        optimizedImageSize: optimizedImageBytes.length,
+        originalImageDimensions: Size(image.width.toDouble(), image.height.toDouble()),
+        optimizedImageDimensions: Size(image.width.toDouble(), image.height.toDouble()),
+      );
+
+      setLoading(false);
+    } catch (e) {
+      print("Erreur lors de la reconstruction du puzzle: $e");
+      setError("Erreur lors de la reconstruction du puzzle");
+      setLoading(false);
+    }
+  }
   Future<void> saveMetadata(String imageName) async {
     _counter.increment('saveMetadata');
   }
@@ -487,7 +547,204 @@ void setCategory(String category) {
     return Uint8List.fromList(optimizedBytes);
   }
 
+  static Future<Uint8List> _embedMetadataInImage(Map<String, dynamic> params) async {
+    final imageBytes = params['image'] as Uint8List;
+    final metadata = params['metadata'] as String;
+
+    final image = img.decodeImage(imageBytes);
+    if (image == null) {
+      throw Exception("Impossible de décoder l'image");
+    }
+
+    img.drawString(
+      image,
+      'PUZZLE_METADATA:$metadata',
+      font: img.arial14,
+      x: 10,
+      y: 10,
+      color: img.ColorRgba8(255, 255, 255, 100),
+    );
+
+    return Uint8List.fromList(img.encodePng(image));
+  }
+
+
+
+  Future<void> loadSavedPuzzle() async {
+    try {
+      // Charger l'image sauvegardée
+      final savedImageBytes = await _loadSavedImageLocally('puzzle_save.png');
+      if (savedImageBytes == null) {
+        throw Exception('Aucune sauvegarde trouvée');
+      }
+
+      // Extraire les métadonnées de l'image
+      final metadata = await compute(_extractMetadataFromImage, savedImageBytes);
+
+      // Reconstruire le puzzle à partir des métadonnées
+      await reconstructPuzzle(
+        metadata?['columns'],
+        metadata!['rows'],
+        List<int>.from(metadata['currentArrangement']),
+        metadata['swapCount'],
+        savedImageBytes,
+        metadata['imageTitle'],
+      );
+
+      print('Puzzle chargé avec succès');
+    } catch (e) {
+      print('Erreur lors du chargement du puzzle sauvegardé: $e');
+      setError('Erreur lors du chargement du puzzle sauvegardé');
+    }
+  }
+
+  Future<Uint8List?> _loadSavedImageLocally(String fileName) async {
+    // Implémenter le chargement local ici
+    // Similaire à _saveImageLocally, cela dépendra de la plateforme
+
+    if (kIsWeb) {
+      final base64Image = html.window.localStorage[fileName];
+      if (base64Image != null) {
+        return base64Decode(base64Image);
+      }
+    } else {
+      // Exemple pour mobile/desktop
+      // final directory = await getApplicationDocumentsDirectory();
+      // final file = File('${directory.path}/$fileName');
+      // if (await file.exists()) {
+      //   return await file.readAsBytes();
+      // }
+    }
+    return null;
+  }
+
+
+  // New
+  static const String METADATA_TAG = 'PuzzleAppMetadata';
+
+  Future<void> savePuzzleStateWithImage() async {
+    try {
+      final currentImage = await generateCurrentImage();
+      final metadata = {
+        'timestamp': DateTime.now().toIso8601String(),
+        'imageTitle': state.currentImageTitle,
+        'columns': state.columns,
+        'rows': state.rows,
+        'currentArrangement': state.currentArrangement,
+        'swapCount': state.swapCount,
+        'minimalMoves': state.minimalMoves,
+      };
+      final metadataJson = jsonEncode(metadata);
+      final imageWithMetadata = await compute(_embedMetadataInImage, {
+        'image': currentImage,
+        'metadata': metadataJson,
+      });
+      await _saveImageLocally(imageWithMetadata, 'puzzle_save.png');
+      print('Puzzle sauvegardé avec succès');
+    } catch (e) {
+      print('Erreur lors de la sauvegarde du puzzle: $e');
+      setError('Erreur lors de la sauvegarde du puzzle');
+    }
+  }
+
+  Future<Uint8List> generateCurrentImage() async {
+    final image = img.Image(
+      width: state.imageSize.width.toInt(),
+      height: state.imageSize.height.toInt(),
+    );
+    final pieceWidth = state.imageSize.width ~/ state.columns;
+    final pieceHeight = state.imageSize.height ~/ state.rows;
+
+    for (int i = 0; i < state.currentArrangement.length; i++) {
+      final pieceIndex = state.currentArrangement[i];
+      final pieceImageBytes = state.pieces[pieceIndex];
+      final pieceImage = img.decodePng(pieceImageBytes);
+      if (pieceImage != null) {
+        final x = (i % state.columns) * pieceWidth;
+        final y = (i ~/ state.columns) * pieceHeight;
+        img.compositeImage(
+          image,
+          pieceImage,
+          dstX: x.toInt(),
+          dstY: y.toInt(),
+        );
+      }
+    }
+
+    return Uint8List.fromList(img.encodePng(image));
+  }
+
+  Future<void> _saveImageLocally(Uint8List imageBytes, String fileName) async {
+    if (kIsWeb) {
+      // Exemple pour le web
+      final base64Image = base64Encode(imageBytes);
+      html.window.localStorage[fileName] = base64Image;
+      // Utilisez une méthode appropriée pour sauvegarder sur le web
+      // Par exemple, avec IndexedDB ou localStorage
+    } else {
+      // Exemple pour mobile/desktop (nécessite le package path_provider)
+      // final directory = await getApplicationDocumentsDirectory();
+      // final file = File('${directory.path}/$fileName');
+      // await file.writeAsBytes(imageBytes);
+    }
+  }
+  Future<void> loadPuzzleFromImage(Uint8List imageBytes) async {
+    try {
+      final metadata = await compute(_extractMetadataFromImage, imageBytes);
+      if (metadata != null) {
+        await reconstructPuzzle(
+          metadata['columns'] as int? ?? 3,
+          metadata['rows'] as int? ?? 3,
+          List<int>.from(metadata['currentArrangement'] as List<dynamic>? ?? []),
+          metadata['swapCount'] as int? ?? 0,
+          imageBytes,
+          metadata['imageTitle'] as String? ?? 'Puzzle chargé',
+        );
+        print('Puzzle chargé avec succès');
+      } else {
+        await initializePuzzle(imageBytes, imageBytes, 'Nouvelle Image', Duration.zero, Duration.zero, false, 'Custom');
+        print('Nouvelle image chargée comme puzzle');
+      }
+    } catch (e) {
+      print('Erreur lors du chargement de l\'image: $e');
+      setError('Erreur lors du chargement de l\'image');
+    }
+  }
+
+
+  Future<bool> isPuzzleImage(Uint8List imageBytes) async {
+    try {
+      final metadata = await compute(_extractMetadataFromImage, imageBytes);
+      return metadata != null;
+    } catch (e) {
+      print('Erreur lors de la vérification des métadonnées: $e');
+      return false;
+    }
+  }
+  static Map<String, dynamic>? _extractMetadataFromImage(Uint8List imageBytes) {
+    final image = img.decodeImage(imageBytes);
+    if (image == null) return null;
+
+    final metadataString = String.fromCharCodes(image.getBytes());
+    final metadataStart = metadataString.indexOf('PUZZLE_METADATA:');
+    if (metadataStart == -1) return null;
+
+    final metadataEnd = metadataString.indexOf('\n', metadataStart);
+    final metadataJson = metadataString.substring(metadataStart + 16, metadataEnd != -1 ? metadataEnd : metadataString.length);
+
+    try {
+      return jsonDecode(metadataJson) as Map<String, dynamic>;
+    } catch (e) {
+      print('Erreur lors du décodage des métadonnées: $e');
+      return null;
+    }
+  }
+
+
+
 }
+
+
 
 class PuzzleState {
   final bool isInitialized;

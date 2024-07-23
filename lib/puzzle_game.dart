@@ -5,11 +5,14 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
+import 'dart:convert';
 
 import 'pmlsoft.dart';
 import 'puzzle_state.dart';
 import 'puzzle_params.dart';
 import 'utils/function_counter.dart';
+
+import 'dart:html' as html;
 
 final FunctionCounter _counter = FunctionCounter();
 
@@ -19,7 +22,8 @@ class PuzzleBoard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final puzzleState = ref.watch(puzzleProvider);
-    final correctPieces = ref.read(puzzleProvider.notifier).countCorrectPieces();
+    final correctPieces =
+        ref.read(puzzleProvider.notifier).countCorrectPieces();
     final isComplete = correctPieces == puzzleState.pieces.length;
     _counter.increment('build PuzzleBoard');
 
@@ -30,7 +34,8 @@ class PuzzleBoard extends ConsumerWidget {
     final screenSize = MediaQuery.of(context).size;
     final appBarHeight = AppBar().preferredSize.height;
     final availableHeight = screenSize.height - appBarHeight;
-    final imageAspectRatio = puzzleState.imageSize.width / puzzleState.imageSize.height;
+    final imageAspectRatio =
+        puzzleState.imageSize.width / puzzleState.imageSize.height;
 
     double puzzleWidth, puzzleHeight;
     if (imageAspectRatio > screenSize.width / availableHeight) {
@@ -47,9 +52,9 @@ class PuzzleBoard extends ConsumerWidget {
     Widget buildCompletionText(PuzzleState puzzleState) {
       return AnimatedOpacity(
         opacity: 1.0,
-        duration: const Duration(milliseconds: 500),
+        duration: const Duration(milliseconds: 2000),
         child: Container(
-          padding: const EdgeInsets.all(20),
+          padding: const EdgeInsets.all(10),
           decoration: BoxDecoration(
             color: Colors.green.withOpacity(0.7),
             borderRadius: BorderRadius.circular(20),
@@ -60,7 +65,7 @@ class PuzzleBoard extends ConsumerWidget {
               Text(
                 puzzleState.currentImageTitle,
                 style: const TextStyle(
-                  fontSize: 25,
+                  fontSize: 20,
                   color: Colors.white,
                   fontWeight: FontWeight.bold,
                 ),
@@ -87,7 +92,9 @@ class PuzzleBoard extends ConsumerWidget {
                 final pieceIndex = puzzleState.currentArrangement[index];
                 return DragTarget<int>(
                   onAcceptWithDetails: (details) {
-                    ref.read(puzzleProvider.notifier).swapPieces(details.data, index);
+                    ref
+                        .read(puzzleProvider.notifier)
+                        .swapPieces(details.data, index);
                   },
                   builder: (context, candidateData, rejectedData) {
                     return Draggable<int>(
@@ -172,6 +179,74 @@ class _PuzzleGameState extends ConsumerState<PuzzleGame> {
     });
   }
 
+  Future<void> _savePuzzleState() async {
+    final puzzleState = ref.read(puzzleProvider);
+    final metadata = {
+      'timestamp': DateTime.now().toIso8601String(),
+      'imageTitle': puzzleState.currentImageTitle,
+      'columns': puzzleState.columns,
+      'rows': puzzleState.rows,
+      'currentArrangement': puzzleState.currentArrangement,
+      'swapCount': puzzleState.swapCount,
+      'originalImageSize': puzzleState.originalImageSize,
+      'originalImageDimensions': {
+        'width': puzzleState.originalImageDimensions.width,
+        'height': puzzleState.originalImageDimensions.height,
+      },
+    };
+    final String jsonMetadata = jsonEncode(metadata);
+
+    try {
+      html.window.localStorage['puzzle_state'] = jsonMetadata;
+      html.window.localStorage['original_image'] =
+          base64Encode(puzzleState.fullImage!);
+      print('Puzzle sauvegardé dans le localStorage');
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Puzzle sauvegardé avec succès')),
+      );
+    } catch (e) {
+      print('Erreur lors de la sauvegarde: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Erreur lors de la sauvegarde du puzzle: $e')),
+      );
+    }
+  }
+
+  Future<void> _loadPuzzleState() async {
+    try {
+      final String? jsonMetadata = html.window.localStorage['puzzle_state'];
+      final String? base64Image = html.window.localStorage['original_image'];
+
+      if (jsonMetadata != null && base64Image != null) {
+        final metadata = jsonDecode(jsonMetadata);
+        final Uint8List imageBytes = base64Decode(base64Image);
+
+        await ref.read(puzzleProvider.notifier).reconstructPuzzle(
+              metadata['columns'],
+              metadata['rows'],
+              List<int>.from(metadata['currentArrangement']),
+              metadata['swapCount'],
+              imageBytes,
+              metadata['imageTitle'],
+            );
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Puzzle chargé avec succès')),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Aucun puzzle sauvegardé trouvé')),
+        );
+      }
+    } catch (e) {
+      print('Erreur lors du chargement: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Erreur lors du chargement du puzzle')),
+      );
+    }
+  }
+
   Future<void> _pickImage() async {
     final ImagePicker picker = ImagePicker();
     final XFile? image = await picker.pickImage(source: ImageSource.gallery);
@@ -188,7 +263,8 @@ class _PuzzleGameState extends ConsumerState<PuzzleGame> {
 
     if (photo != null) {
       final Uint8List photoBytes = await photo.readAsBytes();
-      _loadCustomImage(photoBytes, 'Photo_${DateTime.now().toIso8601String()}.jpg');
+      _loadCustomImage(
+          photoBytes, 'Photo_${DateTime.now().toIso8601String()}.jpg');
     }
   }
 
@@ -206,14 +282,14 @@ class _PuzzleGameState extends ConsumerState<PuzzleGame> {
 
       stopwatch.start();
       await ref.read(puzzleProvider.notifier).initializePuzzle(
-        imageBytes,
-        imageBytes,
-        imageName,
-        loadingTime,
-        Duration.zero,
-        false,
-        'Custom',
-      );
+            imageBytes,
+            imageBytes,
+            imageName,
+            loadingTime,
+            Duration.zero,
+            false,
+            'Custom',
+          );
 
       final initializationTime = stopwatch.elapsed;
       stopwatch.stop();
@@ -227,7 +303,9 @@ class _PuzzleGameState extends ConsumerState<PuzzleGame> {
       });
     } catch (e) {
       print("Erreur lors du chargement de l'image: $e");
-      ref.read(puzzleProvider.notifier).setError("Erreur lors du chargement de l'image");
+      ref
+          .read(puzzleProvider.notifier)
+          .setError("Erreur lors du chargement de l'image");
     } finally {
       ref.read(puzzleProvider.notifier).setLoading(false);
     }
@@ -240,112 +318,143 @@ class _PuzzleGameState extends ConsumerState<PuzzleGame> {
     return Scaffold(
       appBar: AppBar(
         title: puzzleState.isLoading
-            ? const Text("Découpage en cours...v7.2215", style: TextStyle(fontSize: 16, color: Colors.red))
+            ? const Text("Découpage en cours...v72307",
+                style: TextStyle(fontSize: 16, color: Colors.red))
             : const Text(''),
         actions: !puzzleState.isLoading
             ? [
-          Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: Center(
-              child: Text(
-                '${ref.read(puzzleProvider.notifier).countCorrectPieces()}/${puzzleState.pieces.length}',
-                style: const TextStyle(fontSize: 16, color: Colors.black),
-              ),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: Center(
-              child: Text(
-                '[${puzzleState.swapCount}]  ',
-                style: const TextStyle(fontSize: 14, color: Colors.red),
-              ),
-            ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.inbox, color: Colors.black),
-            onPressed: () => _loadRandomImage(context),
-            tooltip: 'Boite à Images',
-            iconSize: 26.0,
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(),
-          ),
-          IconButton(
-            icon: const Icon(Icons.lightbulb_outline, color: Colors.greenAccent),
-            onPressed: _toggleFullImage,
-            tooltip: 'Voir le puzzle',
-            iconSize: 26.0,
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(),
-          ),
-          IconButton(
-            icon: const Icon(Icons.photo_library_outlined, color: Colors.black),
-            onPressed: _pickImage,
-            tooltip: 'Choisir une image',
-            iconSize: 26.0,
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(),
-          ),
-          IconButton(
-            icon: const Icon(Icons.camera_alt, color: Colors.black),
-            onPressed: _takePhoto,
-            tooltip: 'Prendre une photo',
-            iconSize: 26.0,
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(),
-          ),
-          IconButton(
-            icon: const Icon(Icons.settings, color: Colors.black),
-            tooltip: 'Paramètres',
-            iconSize: 26.0,
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => const DifficultySettingsScreen()),
-              );
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.info, color: Colors.red),
-            iconSize: 22.0,
-            tooltip: 'Infos Image',
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(),
-            onPressed: () {
-              showDialog(
-                context: context,
-                builder: (context) => AlertDialog(
-                  title: const Text('22/07 16:10'),
-                  content: SingleChildScrollView(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Taille originale: ${puzzleState.originalImageSize} bytes'),
-                        Text('Dimensions originales: ${puzzleState.originalImageDimensions.width.round()}x${puzzleState.originalImageDimensions.height.round()}'),
-                        Text('Taille optimisée: ${puzzleState.optimizedImageSize} bytes'),
-                        Text('Dimensions optimisées: ${puzzleState.optimizedImageDimensions.width.round()}x${puzzleState.optimizedImageDimensions.height.round()}'),
-                        Text('Chargement: ${puzzleState.processingTimes['loading']?.inMilliseconds}ms'),
-                        Text('Optimisation: ${puzzleState.processingTimes['optimization']?.inMilliseconds}ms'),
-                        Text('Initialisation: ${puzzleState.processingTimes['initialization']?.inMilliseconds}ms'),
-                        Text('Décodage: ${puzzleState.processingTimes['decoding']?.inMilliseconds}ms'),
-                        Text('Redimensionnement: ${puzzleState.processingTimes['resizing']?.inMilliseconds}ms'),
-                        Text('Création des pièces: ${puzzleState.processingTimes['pieces_creation']?.inMilliseconds}ms'),
-                      ],
+                Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: Center(
+                    child: Text(
+                      '${ref.read(puzzleProvider.notifier).countCorrectPieces()}/${puzzleState.pieces.length}',
+                      style: const TextStyle(fontSize: 10, color: Colors.black),
                     ),
                   ),
-                  actions: [
-                    TextButton(
-                      child: const Text('Fermer'),
-                      onPressed: () => Navigator.of(context).pop(),
-                    ),
-                  ],
                 ),
-              );
-            },
-          ),
-        ]
+                Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: Center(
+                    child: Text(
+                      '[${puzzleState.swapCount}]  ',
+                      style: const TextStyle(fontSize: 10, color: Colors.red),
+                    ),
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.inbox, color: Colors.black),
+                  onPressed: () => _loadRandomImage(context),
+                  tooltip: 'Boite à Images',
+                  iconSize: 20.0,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.lightbulb_outline,
+                      color: Colors.greenAccent),
+                  onPressed: _toggleFullImage,
+                  tooltip: 'Voir le puzzle',
+                  iconSize: 20.0,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.photo_library_outlined,
+                      color: Colors.black),
+                  onPressed: _pickImage,
+                  tooltip: 'Choisir une image',
+                  iconSize: 20.0,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.camera_alt, color: Colors.black),
+                  onPressed: _takePhoto,
+                  tooltip: 'Prendre une photo',
+                  iconSize: 20.0,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.save, color: Colors.blue),
+                  onPressed: _savePuzzleState,
+                  tooltip: 'Sauvegarder le puzzle',
+                  iconSize: 20.0,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.folder_open, color: Colors.orange),
+                  onPressed: _loadPuzzleState,
+                  tooltip: 'Charger un puzzle',
+                  iconSize: 20.0,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.settings, color: Colors.black),
+                  tooltip: 'Paramètres',
+                  iconSize: 20.0,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (context) =>
+                              const DifficultySettingsScreen()),
+                    );
+                  },
+                ),
+                IconButton(
+                  icon: const Icon(Icons.info, color: Colors.red),
+                  iconSize: 20.0,
+                  tooltip: 'Infos Image',
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  onPressed: () {
+                    showDialog(
+                      context: context,
+                      builder: (context) => AlertDialog(
+                        title: const Text('72305'),
+                        content: SingleChildScrollView(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                  'Taille originale: ${puzzleState.originalImageSize} bytes'),
+                              Text(
+                                  'Dimensions originales: ${puzzleState.originalImageDimensions.width.round()}x${puzzleState.originalImageDimensions.height.round()}'),
+                              Text(
+                                  'Taille optimisée: ${puzzleState.optimizedImageSize} bytes'),
+                              Text(
+                                  'Dimensions optimisées: ${puzzleState.optimizedImageDimensions.width.round()}x${puzzleState.optimizedImageDimensions.height.round()}'),
+                              Text(
+                                  'Chargement: ${puzzleState.processingTimes['loading']?.inMilliseconds}ms'),
+                              Text(
+                                  'Optimisation: ${puzzleState.processingTimes['optimization']?.inMilliseconds}ms'),
+                              Text(
+                                  'Initialisation: ${puzzleState.processingTimes['initialization']?.inMilliseconds}ms'),
+                              Text(
+                                  'Décodage: ${puzzleState.processingTimes['decoding']?.inMilliseconds}ms'),
+                              Text(
+                                  'Redimensionnement: ${puzzleState.processingTimes['resizing']?.inMilliseconds}ms'),
+                              Text(
+                                  'Création des pièces: ${puzzleState.processingTimes['pieces_creation']?.inMilliseconds}ms'),
+                            ],
+                          ),
+                        ),
+                        actions: [
+                          TextButton(
+                            child: const Text('Fermer'),
+                            onPressed: () => Navigator.of(context).pop(),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              ]
             : [],
       ),
       body: Stack(
@@ -379,7 +488,8 @@ class _PuzzleGameState extends ConsumerState<PuzzleGame> {
     try {
       final Stopwatch stopwatch = Stopwatch()..start();
       final String assetPath = 'assets/${randomImage['file']}';
-      final ByteData data = await DefaultAssetBundle.of(context).load(assetPath);
+      final ByteData data =
+          await DefaultAssetBundle.of(context).load(assetPath);
       final Uint8List imageBytes = data.buffer.asUint8List();
 
       final loadingTime = stopwatch.elapsed;
@@ -391,14 +501,14 @@ class _PuzzleGameState extends ConsumerState<PuzzleGame> {
 
       stopwatch.start();
       await ref.read(puzzleProvider.notifier).initializePuzzle(
-        imageBytes,
-        optimizedImageBytes,
-        randomImage['name']!,
-        loadingTime,
-        optimizationTime,
-        true,
-        randomImage['categ']!,
-      );
+            imageBytes,
+            optimizedImageBytes,
+            randomImage['name']!,
+            loadingTime,
+            optimizationTime,
+            true,
+            randomImage['categ']!,
+          );
 
       final initializationTime = stopwatch.elapsed;
       stopwatch.stop();
@@ -413,7 +523,9 @@ class _PuzzleGameState extends ConsumerState<PuzzleGame> {
       });
     } catch (e) {
       print("Erreur lors du chargement de l'image: $e");
-      ref.read(puzzleProvider.notifier).setError("Erreur lors du chargement de l'image");
+      ref
+          .read(puzzleProvider.notifier)
+          .setError("Erreur lors du chargement de l'image");
     } finally {
       ref.read(puzzleProvider.notifier).setLoading(false);
     }
