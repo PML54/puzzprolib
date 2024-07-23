@@ -180,27 +180,8 @@ class _PuzzleGameState extends ConsumerState<PuzzleGame> {
   }
 
   Future<void> _savePuzzleState() async {
-    final puzzleState = ref.read(puzzleProvider);
-    final metadata = {
-      'timestamp': DateTime.now().toIso8601String(),
-      'imageTitle': puzzleState.currentImageTitle,
-      'columns': puzzleState.columns,
-      'rows': puzzleState.rows,
-      'currentArrangement': puzzleState.currentArrangement,
-      'swapCount': puzzleState.swapCount,
-      'originalImageSize': puzzleState.originalImageSize,
-      'originalImageDimensions': {
-        'width': puzzleState.originalImageDimensions.width,
-        'height': puzzleState.originalImageDimensions.height,
-      },
-    };
-    final String jsonMetadata = jsonEncode(metadata);
-
     try {
-      html.window.localStorage['puzzle_state'] = jsonMetadata;
-      html.window.localStorage['original_image'] =
-          base64Encode(puzzleState.fullImage!);
-      print('Puzzle sauvegardé dans le localStorage');
+      await ref.read(puzzleProvider.notifier).savePuzzleStateWithImage();
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Puzzle sauvegardé avec succès')),
@@ -323,24 +304,19 @@ class _PuzzleGameState extends ConsumerState<PuzzleGame> {
             : const Text(''),
         actions: !puzzleState.isLoading
             ? [
-                Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: Center(
-                    child: Text(
-                      '${ref.read(puzzleProvider.notifier).countCorrectPieces()}/${puzzleState.pieces.length}',
-                      style: const TextStyle(fontSize: 10, color: Colors.black),
+                Tooltip(
+                  message:  '[${puzzleState.swapCount}]  ',
+                  child: Padding(
+                    padding: const EdgeInsets.only(right: 2),
+                    child: Center(
+                      child: Text(
+                        '${ref.read(puzzleProvider.notifier).countCorrectPieces()}/${puzzleState.pieces.length}',
+                        style: const TextStyle(fontSize: 10, color: Colors.black),
+                      ),
                     ),
                   ),
                 ),
-                Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: Center(
-                    child: Text(
-                      '[${puzzleState.swapCount}]  ',
-                      style: const TextStyle(fontSize: 10, color: Colors.red),
-                    ),
-                  ),
-                ),
+
                 IconButton(
                   icon: const Icon(Icons.inbox, color: Colors.black),
                   onPressed: () => _loadRandomImage(context),
@@ -382,8 +358,8 @@ class _PuzzleGameState extends ConsumerState<PuzzleGame> {
                   iconSize: 20.0,
                   padding: EdgeInsets.zero,
                   constraints: const BoxConstraints(),
-                ),
-                IconButton(
+                ),/*
+      */          IconButton(
                   icon: const Icon(Icons.folder_open, color: Colors.orange),
                   onPressed: _loadPuzzleState,
                   tooltip: 'Charger un puzzle',
@@ -416,7 +392,7 @@ class _PuzzleGameState extends ConsumerState<PuzzleGame> {
                     showDialog(
                       context: context,
                       builder: (context) => AlertDialog(
-                        title: const Text('72305'),
+                        title: const Text('7231032'),
                         content: SingleChildScrollView(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,

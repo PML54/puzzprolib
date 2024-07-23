@@ -4,11 +4,15 @@ import 'dart:ui' show Size;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image/image.dart' as img;
-
+import 'package:intl/intl.dart';
 import 'utils/function_counter.dart';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'dart:html' as html;
+
+import 'dart:io';
+import 'package:path_provider/path_provider.dart';
+
 
 
 
@@ -621,7 +625,6 @@ void setCategory(String category) {
 
   // New
   static const String METADATA_TAG = 'PuzzleAppMetadata';
-
   Future<void> savePuzzleStateWithImage() async {
     try {
       final currentImage = await generateCurrentImage();
@@ -639,11 +642,18 @@ void setCategory(String category) {
         'image': currentImage,
         'metadata': metadataJson,
       });
-      await _saveImageLocally(imageWithMetadata, 'puzzle_save.png');
-      print('Puzzle sauvegardé avec succès');
+
+      final fileName = _generateFileName();
+      if (kIsWeb) {
+        _saveImageToDownloads(imageWithMetadata, '$fileName.png');
+      } else {
+        // Code existant pour les plateformes non-web
+        await _saveImageLocally(imageWithMetadata, '$fileName.png');
+      }
+      print('Puzzle sauvegardé avec succès sous le nom: $fileName.png');
     } catch (e) {
       print('Erreur lors de la sauvegarde du puzzle: $e');
-      setError('Erreur lors de la sauvegarde du puzzle');
+      throw Exception('Erreur lors de la sauvegarde du puzzle: $e');
     }
   }
 
@@ -673,21 +683,45 @@ void setCategory(String category) {
 
     return Uint8List.fromList(img.encodePng(image));
   }
+  String _generateFileName() {
+    final now = DateTime.now();
+    final formatter = DateFormat('yyMMddHHmmss');
+    return 'Puzz${formatter.format(now)}';
+  }
 
-  Future<void> _saveImageLocally(Uint8List imageBytes, String fileName) async {
+  void _saveImageToDownloads(Uint8List imageBytes, String fileName) {
+    final blob = html.Blob([imageBytes]);
+    final url = html.Url.createObjectUrlFromBlob(blob);
+    final anchor = html.document.createElement('a') as html.AnchorElement
+      ..href = url
+      ..style.display = 'none'
+      ..download = fileName;
+    html.document.body!.children.add(anchor);
+
+    // Déclencher le téléchargement
+    anchor.click();
+
+    // Nettoyer
+    html.document.body!.children.remove(anchor);
+    html.Url.revokeObjectUrl(url);
+  }
+
+  Future<String> _saveImageLocally(Uint8List imageBytes, String fileName) async {
     if (kIsWeb) {
-      // Exemple pour le web
       final base64Image = base64Encode(imageBytes);
       html.window.localStorage[fileName] = base64Image;
-      // Utilisez une méthode appropriée pour sauvegarder sur le web
-      // Par exemple, avec IndexedDB ou localStorage
+      return 'localStorage://$fileName';
     } else {
-      // Exemple pour mobile/desktop (nécessite le package path_provider)
-      // final directory = await getApplicationDocumentsDirectory();
-      // final file = File('${directory.path}/$fileName');
-      // await file.writeAsBytes(imageBytes);
+      final directory = await getApplicationDocumentsDirectory();
+      final filePath = '${directory.path}/$fileName';
+      final file = File(filePath);
+      print('Image sauvegardée sur l\'appareil : $filePath');
+      await file.writeAsBytes(imageBytes);
+      return filePath;
     }
   }
+
+
   Future<void> loadPuzzleFromImage(Uint8List imageBytes) async {
     try {
       final metadata = await compute(_extractMetadataFromImage, imageBytes);
