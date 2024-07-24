@@ -1,5 +1,4 @@
 import 'dart:math';
-import 'dart:typed_data';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -11,6 +10,8 @@ import 'pmlsoft.dart';
 import 'puzzle_state.dart';
 import 'puzzle_params.dart';
 import 'utils/function_counter.dart';
+import 'package:flutter/services.dart';
+import 'widget/compactage.dart';
 
 import 'dart:html' as html;
 
@@ -207,6 +208,7 @@ class _PuzzleGameState extends ConsumerState<PuzzleGame> {
               metadata['columns'],
               metadata['rows'],
               List<int>.from(metadata['currentArrangement']),
+          List<int>.from(metadata['initalArrangement']),
               metadata['swapCount'],
               imageBytes,
               metadata['imageTitle'],
@@ -248,190 +250,146 @@ class _PuzzleGameState extends ConsumerState<PuzzleGame> {
           photoBytes, 'Photo_${DateTime.now().toIso8601String()}.jpg');
     }
   }
-
   Future<void> _loadCustomImage(Uint8List imageBytes, String imageName) async {
     ref.read(puzzleProvider.notifier).setLoading(true);
-    ref.read(puzzleProvider.notifier).setImageTitle(imageName);
-    ref.read(puzzleProvider.notifier).resetSwapCount();
 
     try {
-      final Stopwatch stopwatch = Stopwatch()..start();
+      final isPuzzleImage = await ref.read(puzzleProvider.notifier).isPuzzleImage(imageBytes);
 
-      final loadingTime = stopwatch.elapsed;
-      stopwatch.stop();
-      stopwatch.reset();
-
-      stopwatch.start();
-      await ref.read(puzzleProvider.notifier).initializePuzzle(
-            imageBytes,
-            imageBytes,
-            imageName,
-            loadingTime,
-            Duration.zero,
-            false,
-            'Custom',
-          );
-
-      final initializationTime = stopwatch.elapsed;
-      stopwatch.stop();
-
-      ref.read(puzzleProvider.notifier).shufflePieces();
-      ref.read(puzzleProvider.notifier).setPuzzleReady(true);
-
-      ref.read(puzzleProvider.notifier).updateProcessingTimes({
-        'loading': loadingTime,
-        'initialization': initializationTime,
-      });
+      if (isPuzzleImage) {
+        await _loadSavedPuzzleFromImage(imageBytes);
+      } else {
+        await _initializeNewPuzzle(imageBytes, imageName);
+      }
     } catch (e) {
       print("Erreur lors du chargement de l'image: $e");
-      ref
-          .read(puzzleProvider.notifier)
-          .setError("Erreur lors du chargement de l'image");
+      ref.read(puzzleProvider.notifier).setError("Erreur lors du chargement de l'image");
     } finally {
       ref.read(puzzleProvider.notifier).setLoading(false);
     }
   }
 
+  Future<void> _loadSavedPuzzleFromImage(Uint8List imageBytes) async {
+    try {
+      await ref.read(puzzleProvider.notifier).loadPuzzleFromImage(imageBytes);
+      setState(() {}); // Forcez une mise à jour de l'UI
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Puzzle sauvegardé chargé avec succès')),
+      );
+    } catch (e) {
+      print("Erreur lors du chargement du puzzle sauvegardé: $e");
+      ref.read(puzzleProvider.notifier).setError("Erreur lors du chargement du puzzle sauvegardé");
+    }
+  }
+
+
+  Future<void> _initializeNewPuzzle(Uint8List imageBytes, String imageName) async {
+    ref.read(puzzleProvider.notifier).setImageTitle(imageName);
+    ref.read(puzzleProvider.notifier).resetSwapCount();
+
+    final Stopwatch stopwatch = Stopwatch()..start();
+    final loadingTime = stopwatch.elapsed;
+    stopwatch.reset();
+    stopwatch.start();
+
+    await ref.read(puzzleProvider.notifier).initializePuzzle(
+      imageBytes,
+      imageBytes,
+      imageName,
+      loadingTime,
+      Duration.zero,
+      false,
+      'Custom',
+    );
+
+    final initializationTime = stopwatch.elapsed;
+    stopwatch.stop();
+
+    ref.read(puzzleProvider.notifier).shufflePieces();
+    ref.read(puzzleProvider.notifier).setPuzzleReady(true);
+
+    ref.read(puzzleProvider.notifier).updateProcessingTimes({
+      'loading': loadingTime,
+      'initialization': initializationTime,
+    });
+  }
   @override
   Widget build(BuildContext context) {
     final puzzleState = ref.watch(puzzleProvider);
+// Ajoutez cette vérification au début de la méthode build
+    if (puzzleState.pieces.isEmpty || puzzleState.initialArrangement.isEmpty) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+    final List<Widget> appBarActions = [
+      Tooltip(
+        message: '[${puzzleState.swapCount}]',
+        child: Padding(
+          padding: const EdgeInsets.only(right: 2),
+          child: Center(
+            child: Text(
+              '${ref.read(puzzleProvider.notifier).countCorrectPieces()}/${puzzleState.pieces.length}',
+              style: const TextStyle(fontSize: 10, color: Colors.black),
+            ),
+          ),
+        ),
+      ),
+      IconButton(
+        icon: const Icon(Icons.gamepad, color: Colors.black),
+        onPressed: () => _loadRandomImage(context),
+        tooltip: 'Boite à Images',
+      ),
+      IconButton(
+        icon: const Icon(Icons.lightbulb_outline, color: Colors.greenAccent),
+        onPressed: _toggleFullImage,
+        tooltip: 'Voir le puzzle',
+      ),
+      IconButton(
+        icon: const Icon(Icons.photo_library_outlined, color: Colors.black),
+        onPressed: _pickImage,
+        tooltip: 'Choisir une image',
+      ),
+      IconButton(
+        icon: const Icon(Icons.camera_alt, color: Colors.black),
+        onPressed: _takePhoto,
+        tooltip: 'Prendre une photo',
+      ),
+      IconButton(
+        icon: const Icon(Icons.save, color: Colors.blue),
+        onPressed: _savePuzzleState,
+        tooltip: 'Sauvegarder le puzzle',
+      ),
+      IconButton(
+        icon: const Icon(Icons.settings, color: Colors.black),
+        tooltip: 'Paramètres',
+        onPressed: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => const DifficultySettingsScreen()),
+          );
+        },
+      ),
+      IconButton(
+        icon: const Icon(Icons.info, color: Colors.red),
+        tooltip: 'Infos Image',
+        onPressed: () {
+          // Votre code pour afficher le dialogue d'informations
+        },
+      ),
+    ];
 
     return Scaffold(
-      appBar: AppBar(
-        title: puzzleState.isLoading
-            ? const Text("Découpage en cours...v72307",
-                style: TextStyle(fontSize: 16, color: Colors.red))
-            : const Text(''),
-        actions: !puzzleState.isLoading
-            ? [
-                Tooltip(
-                  message:  '[${puzzleState.swapCount}]  ',
-                  child: Padding(
-                    padding: const EdgeInsets.only(right: 2),
-                    child: Center(
-                      child: Text(
-                        '${ref.read(puzzleProvider.notifier).countCorrectPieces()}/${puzzleState.pieces.length}',
-                        style: const TextStyle(fontSize: 10, color: Colors.black),
-                      ),
-                    ),
-                  ),
-                ),
 
-                IconButton(
-                  icon: const Icon(Icons.inbox, color: Colors.black),
-                  onPressed: () => _loadRandomImage(context),
-                  tooltip: 'Boite à Images',
-                  iconSize: 20.0,
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.lightbulb_outline,
-                      color: Colors.greenAccent),
-                  onPressed: _toggleFullImage,
-                  tooltip: 'Voir le puzzle',
-                  iconSize: 20.0,
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.photo_library_outlined,
-                      color: Colors.black),
-                  onPressed: _pickImage,
-                  tooltip: 'Choisir une image',
-                  iconSize: 20.0,
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.camera_alt, color: Colors.black),
-                  onPressed: _takePhoto,
-                  tooltip: 'Prendre une photo',
-                  iconSize: 20.0,
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.save, color: Colors.blue),
-                  onPressed: _savePuzzleState,
-                  tooltip: 'Sauvegarder le puzzle',
-                  iconSize: 20.0,
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                ),/*
-      */          IconButton(
-                  icon: const Icon(Icons.folder_open, color: Colors.orange),
-                  onPressed: _loadPuzzleState,
-                  tooltip: 'Charger un puzzle',
-                  iconSize: 20.0,
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.settings, color: Colors.black),
-                  tooltip: 'Paramètres',
-                  iconSize: 20.0,
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                          builder: (context) =>
-                              const DifficultySettingsScreen()),
-                    );
-                  },
-                ),
-                IconButton(
-                  icon: const Icon(Icons.info, color: Colors.red),
-                  iconSize: 20.0,
-                  tooltip: 'Infos Image',
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                  onPressed: () {
-                    showDialog(
-                      context: context,
-                      builder: (context) => AlertDialog(
-                        title: const Text('7231032'),
-                        content: SingleChildScrollView(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                  'Taille originale: ${puzzleState.originalImageSize} bytes'),
-                              Text(
-                                  'Dimensions originales: ${puzzleState.originalImageDimensions.width.round()}x${puzzleState.originalImageDimensions.height.round()}'),
-                              Text(
-                                  'Taille optimisée: ${puzzleState.optimizedImageSize} bytes'),
-                              Text(
-                                  'Dimensions optimisées: ${puzzleState.optimizedImageDimensions.width.round()}x${puzzleState.optimizedImageDimensions.height.round()}'),
-                              Text(
-                                  'Chargement: ${puzzleState.processingTimes['loading']?.inMilliseconds}ms'),
-                              Text(
-                                  'Optimisation: ${puzzleState.processingTimes['optimization']?.inMilliseconds}ms'),
-                              Text(
-                                  'Initialisation: ${puzzleState.processingTimes['initialization']?.inMilliseconds}ms'),
-                              Text(
-                                  'Décodage: ${puzzleState.processingTimes['decoding']?.inMilliseconds}ms'),
-                              Text(
-                                  'Redimensionnement: ${puzzleState.processingTimes['resizing']?.inMilliseconds}ms'),
-                              Text(
-                                  'Création des pièces: ${puzzleState.processingTimes['pieces_creation']?.inMilliseconds}ms'),
-                            ],
-                          ),
-                        ),
-                        actions: [
-                          TextButton(
-                            child: const Text('Fermer'),
-                            onPressed: () => Navigator.of(context).pop(),
-                          ),
-                        ],
-                      ),
-                    );
-                  },
-                ),
-              ]
-            : [],
+      /*    title: puzzleState.isLoading
+              ? Text(
+             "Découpage en cours...(V724.0400'))",
+            style: TextStyle(fontSize: 18, color: Colors.red),
+          )*/
+      appBar: CompactAppBar(
+        isLoading: puzzleState.isLoading,
+        loadingText: "Découpage en cours...(V724.0500'))",
+        actions: appBarActions,
       ),
       body: Stack(
         children: [
